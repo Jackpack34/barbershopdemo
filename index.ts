@@ -6,6 +6,21 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const BARBER_EMAILS: Record<string, string> = {
+  adam: "adam@royalbarber.pl",
+  kacper: "kacper@royalbarber.pl",
+  michal: "michal@royalbarber.pl",
+};
+
+interface BookingData {
+  clientEmail: string;
+  serviceName: string;
+  barberName: string;
+  barberId: string;
+  date: string;
+  time: string;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -17,13 +32,10 @@ serve(async (req) => {
       throw new Error("RESEND_API_KEY is not configured");
     }
 
-    const { name, email, message } = await req.json();
+    const booking: BookingData = await req.json();
 
-    if (!name || !email || !message) {
-      throw new Error("Missing required fields");
-    }
-
-    const res = await fetch("https://api.resend.com/emails", {
+    // Email to client
+    const clientEmail = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,
@@ -31,24 +43,56 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: "Royal Barber <onboarding@resend.dev>",
-        to: ["marcioglowne123@gmail.com"],
-        subject: `Nowa wiadomość od ${name}`,
-        reply_to: email,
+        to: [booking.clientEmail],
+        subject: "Potwierdzenie rezerwacji — Royal Barber",
         html: `
-          <h2>Nowa wiadomość z formularza kontaktowego</h2>
+          <h2>Potwierdzenie rezerwacji</h2>
+          <p>Dziękujemy za rezerwację w Royal Barber!</p>
           <table style="border-collapse:collapse;margin:16px 0">
-            <tr><td style="padding:8px;font-weight:bold">Imię:</td><td style="padding:8px">${name}</td></tr>
-            <tr><td style="padding:8px;font-weight:bold">Email:</td><td style="padding:8px">${email}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold">Usługa:</td><td style="padding:8px">${booking.serviceName}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold">Barber:</td><td style="padding:8px">${booking.barberName}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold">Data:</td><td style="padding:8px">${booking.date}</td></tr>
+            <tr><td style="padding:8px;font-weight:bold">Godzina:</td><td style="padding:8px">${booking.time}</td></tr>
           </table>
-          <p style="white-space:pre-wrap">${message}</p>
+          <p>Do zobaczenia!</p>
         `,
       }),
     });
 
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("Resend error:", err);
-      throw new Error("Failed to send email");
+    if (!clientEmail.ok) {
+      const err = await clientEmail.text();
+      console.error("Client email error:", err);
+    }
+
+    // Email to barber
+    const barberEmail = BARBER_EMAILS[booking.barberId];
+    if (barberEmail) {
+      const barberRes = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "Royal Barber <onboarding@resend.dev>",
+          to: [barberEmail],
+          subject: `Nowa rezerwacja — ${booking.date} o ${booking.time}`,
+          html: `
+            <h2>Nowa rezerwacja</h2>
+            <table style="border-collapse:collapse;margin:16px 0">
+              <tr><td style="padding:8px;font-weight:bold">Usługa:</td><td style="padding:8px">${booking.serviceName}</td></tr>
+              <tr><td style="padding:8px;font-weight:bold">Klient:</td><td style="padding:8px">${booking.clientEmail}</td></tr>
+              <tr><td style="padding:8px;font-weight:bold">Data:</td><td style="padding:8px">${booking.date}</td></tr>
+              <tr><td style="padding:8px;font-weight:bold">Godzina:</td><td style="padding:8px">${booking.time}</td></tr>
+            </table>
+          `,
+        }),
+      });
+
+      if (!barberRes.ok) {
+        const err = await barberRes.text();
+        console.error("Barber email error:", err);
+      }
     }
 
     return new Response(JSON.stringify({ success: true }), {
